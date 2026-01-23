@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { 
-  Geist, 
+import {
+  Geist,
   Geist_Mono,
   Inter,
   IBM_Plex_Mono,
@@ -38,6 +38,9 @@ const playfairDisplay = Playfair_Display({
 export const metadata: Metadata = {
   title: "Plan Your Career - Professional Resume Builder",
   description: "Create a job-winning resume in minutes with Plan Your Career.",
+  icons: {
+    icon: "/logo.png",
+  },
 };
 
 export default function RootLayout({
