@@ -58,94 +58,41 @@ export function CVImport({ onImport }: CVImportProps) {
         return validTypes.includes(file.type) || file.name.endsWith('.pdf') || file.name.endsWith('.docx');
     };
 
-    const extractTextFromFile = async (file: File): Promise<string> => {
-        // For PDF files, we'll read as text (basic extraction)
-        // For production, you would use pdf.js or a server-side parser
-        if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-            // Read PDF as ArrayBuffer and extract text
-            const arrayBuffer = await file.arrayBuffer();
-            const text = await extractTextFromPDF(arrayBuffer);
-            return text;
-        } else {
-            // For DOCX, read as text
-            const text = await file.text();
-            return text;
-        }
+    const fileToBase64 = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => {
+                const base64String = (reader.result as string).split(',')[1];
+                resolve(base64String);
+            };
+            reader.onerror = (error) => reject(error);
+        });
     };
 
-    const extractTextFromPDF = async (arrayBuffer: ArrayBuffer): Promise<string> => {
-        // Basic PDF text extraction - looks for text streams
-        const bytes = new Uint8Array(arrayBuffer);
-        let text = '';
-
-        // Decode as text to find readable content
-        const decoder = new TextDecoder('utf-8', { fatal: false });
-        const rawText = decoder.decode(bytes);
-
-        // Extract text between BT and ET markers (PDF text blocks)
-        const matches = rawText.match(/\(([^)]+)\)/g);
-        if (matches) {
-            text = matches.map(m => m.slice(1, -1)).join(' ');
-        }
-
-        // Also look for plain text content
-        const plainMatches = rawText.match(/\/T[jJ]\s*\[(.*?)\]/g);
-        if (plainMatches) {
-            text += ' ' + plainMatches.join(' ');
-        }
-
-        // Fallback - try to find readable strings
-        if (!text.trim()) {
-            text = rawText
-                .replace(/[^\x20-\x7E\n]/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim();
-        }
-
-        return text;
-    };
-
-    const parseResumeWithAI = async (text: string): Promise<ResumeData> => {
+    const parseResumeWithAI = async (file: File): Promise<ResumeData> => {
         try {
+            const base64Data = await fileToBase64(file);
             const response = await fetch('/api/parse-resume', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text }),
+                body: JSON.stringify({
+                    fileData: base64Data,
+                    mimeType: file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+                }),
             });
 
             if (!response.ok) {
-                throw new Error('Failed to parse resume');
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to parse resume');
             }
 
             const data = await response.json();
             return data.resume;
         } catch (error) {
             console.error('AI parsing failed:', error);
-            // Fallback to basic parsing
-            return parseResumeBasic(text);
+            throw error;
         }
-    };
-
-    const parseResumeBasic = (text: string): ResumeData => {
-        // Basic regex-based parsing as fallback
-        const emailMatch = text.match(/[\w.-]+@[\w.-]+\.\w+/);
-        const phoneMatch = text.match(/[\+]?[(]?[0-9]{3}[)]?[-\s.]?[0-9]{3}[-\s.]?[0-9]{4,6}/);
-        const nameMatch = text.match(/^([A-Z][a-z]+\s+[A-Z][a-z]+)/m);
-
-        return {
-            personalInfo: {
-                firstName: nameMatch ? nameMatch[1].split(' ')[0] : '',
-                lastName: nameMatch ? nameMatch[1].split(' ')[1] : '',
-                email: emailMatch ? emailMatch[0] : '',
-                phone: phoneMatch ? phoneMatch[0] : '',
-                summary: text.substring(0, 500), // First 500 chars as summary
-            },
-            experience: [],
-            education: [],
-            skills: [],
-            languages: [],
-            certificates: [],
-        };
     };
 
     const handleImport = async () => {
@@ -155,9 +102,7 @@ export function CVImport({ onImport }: CVImportProps) {
         setErrorMessage('');
 
         try {
-            const text = await extractTextFromFile(file);
-            const resumeData = await parseResumeWithAI(text);
-
+            const resumeData = await parseResumeWithAI(file);
             setStatus('success');
 
             // Wait a moment to show success state
@@ -169,7 +114,7 @@ export function CVImport({ onImport }: CVImportProps) {
         } catch (error) {
             console.error('Import error:', error);
             setStatus('error');
-            setErrorMessage('Failed to parse the resume. Please try again or enter your information manually.');
+            setErrorMessage(error instanceof Error ? error.message : 'Failed to parse the resume. Please try again or enter your information manually.');
         }
     };
 
