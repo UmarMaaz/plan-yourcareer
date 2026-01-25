@@ -103,20 +103,17 @@ export function CreateResumeForm() {
             file.name.endsWith('.docx')
     }
 
-    const extractTextFromPDF = async (arrayBuffer: ArrayBuffer): Promise<string> => {
-        const bytes = new Uint8Array(arrayBuffer)
-        const decoder = new TextDecoder('utf-8', { fatal: false })
-        const rawText = decoder.decode(bytes)
-
-        const matches = rawText.match(/\(([^)]+)\)/g)
-        let text = matches ? matches.map(m => m.slice(1, -1)).join(' ') : ''
-
-        if (!text.trim()) {
-            text = rawText.replace(/[^\x20-\x7E\n]/g, ' ').replace(/\s+/g, ' ').trim()
-        }
-
-        return text
-    }
+    const fileToBase64 = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => {
+                const base64String = (reader.result as string).split(',')[1];
+                resolve(base64String);
+            };
+            reader.onerror = (error) => reject(error);
+        });
+    };
 
     const handleImport = async () => {
         if (!importFile) return
@@ -125,22 +122,20 @@ export function CreateResumeForm() {
         setImportError('')
 
         try {
-            let text = ''
-
-            if (importFile.type === 'application/pdf' || importFile.name.endsWith('.pdf')) {
-                const arrayBuffer = await importFile.arrayBuffer()
-                text = await extractTextFromPDF(arrayBuffer)
-            } else {
-                text = await importFile.text()
-            }
-
+            const base64Data = await fileToBase64(importFile);
             const response = await fetch('/api/parse-resume', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text }),
+                body: JSON.stringify({
+                    fileData: base64Data,
+                    mimeType: importFile.type || (importFile.name.endsWith('.pdf') ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+                }),
             })
 
-            if (!response.ok) throw new Error('Failed to parse resume')
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to parse resume');
+            }
 
             const data = await response.json()
             setImportedData(data.resume)
@@ -159,7 +154,7 @@ export function CreateResumeForm() {
         } catch (error) {
             console.error('Import error:', error)
             setImportStatus('error')
-            setImportError('Failed to parse the resume. Please try again.')
+            setImportError(error instanceof Error ? error.message : 'Failed to parse the resume. Please try again.')
         }
     }
 

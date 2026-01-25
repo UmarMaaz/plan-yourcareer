@@ -117,9 +117,12 @@ Rules:
     }
 
   } catch (error) {
-    console.error('Resume parsing error:', error);
+    console.error('Detailed Resume parsing error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to parse resume' },
+      {
+        error: error instanceof Error ? error.message : 'Failed to parse resume',
+        details: error instanceof Error ? error.stack : undefined
+      },
       { status: 500 }
     );
   }
